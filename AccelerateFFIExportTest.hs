@@ -1,6 +1,6 @@
 
 
-import Data.Array.Accelerate
+import Data.Array.Accelerate as A 
 import Data.Array.Accelerate.Interpreter
 
 import Data.Typeable
@@ -14,6 +14,15 @@ import Control.Monad (when)
 -- import Duma.Font
 
 foreign export ccall foo :: Int -> IO Int
+
+data Blah = Blah
+
+--foreign export ccall blah :: Blah -> IO Blah
+blah Blah = return Blah
+
+-- foreign export ccall baz :: Dynamic -> IO Dynamic
+-- baz x = return x
+
 
 foo :: Int -> IO Int
 foo n = return (length (f n))
@@ -63,6 +72,5 @@ main = putStrLn "hello"
 -}
 
 --------------------------------------------------------------------------------
-
 
 -- IntegralDict
