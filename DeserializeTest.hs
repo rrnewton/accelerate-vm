@@ -9,7 +9,7 @@
 
 import Prelude as P
 import Data.Array.Accelerate as A
-import Data.Array.Accelerate.Interpreter
+import Data.Array.Accelerate.Interpreter as I
 import qualified Data.Array.Accelerate.BackendKit.IRs.SimpleAcc as S
 import           Data.Array.Accelerate.BackendKit.IRs.SimpleAcc (Type(..))
 import qualified Data.Array.Accelerate.BackendKit.IRs.Internal.AccClone as C
@@ -26,6 +26,12 @@ import Control.Exception (bracket)
 import Control.Monad (when)
 
 import Unsafe.Coerce (unsafeCoerce)
+--------------------------------------------------------------------------------
+
+
+-- foreign export ccall int_elt :: IO Int
+-- int_elt = return$ fromEnum (EltInt EltDict)
+
 
 -- Backend-kit representation:
 ------------------------------------------------------------
@@ -78,9 +84,6 @@ unitDyn ty ex =
 arr1 :: Dynamic
 arr1 = unitDyn aty ex1
 
-theFn = (+1) -- TODO
-
-
 unused = error "This dummy value should not be used"
 
 --------------------------------------------------------------------------------
@@ -99,23 +102,21 @@ unpack1 = fromDynamic ex1
 unpack2 :: (Acc (Scalar Word8))
 unpack2 = fromJust $ fromDynamic arr1
 
+run1 = I.run unpack2
 
+-- theFn = (+1) -- TODO
 -- try0 :: Acc (Scalar Word8)
 -- try0 = A.map theFn arr
 
-
+-- This is where we want to get to:
 dest :: Acc (Scalar Word8)
 dest = A.map (+1) (A.unit 8)
 
---------------------------------------------------------------------------------
--- Misc
 
-singletonScalarType :: T.IsScalar a => a -> T.TupleType ((), a)
-singletonScalarType _ = T.PairTuple T.UnitTuple (T.SingleTuple T.scalarType)
 
 --------------------------------------------------------------------------------
-
 -- (2) Reified dictionary approach:
+--------------------------------------------------------------------------------
 
 data EltDict a where
   EltDict :: (Elt a) => EltDict a
@@ -144,7 +145,11 @@ instance Show EltType where
   show (EltInt _)  = "Int"
   show (EltInt8 _) = "Int8"
   show (EltWord8 _) = "Word8"
-  show (EltTup _ _) = "Tup"
+  show (EltTup a b) = "("++show a++","++show b++")"
+
+instance Show (EltDict a) where
+  show (EltDict :: EltDict a) = show (toDyn (undefined :: a))
+  show (EltTupDict a b ) = "("++show a++","++show b++")"
 
 -- Enums: Won't work for tuples.  Need StablePtrs, alas.
 -- instance Enum EltType where
@@ -168,6 +173,7 @@ unitS elt exp =
 -- A tuple constant:
 ex2 :: SealedExp
 ex2 = mkTup (word8_elt,ex1) (word8_elt,ex1)
+
 mkTup :: (EltType,SealedExp) -> (EltType,SealedExp) -> SealedExp
 mkTup (e1,dyn1) (e2,dyn2) =
   case mkTupElt e1 e2 of
@@ -188,6 +194,8 @@ unpack4 = fromJust $ fromDynamic arr2
 int_elt   = EltInt   EltDict
 word8_elt = EltWord8 EltDict
 tup_elt   = mkTupElt word8_elt word8_elt
+tup_elt2  = mkTupElt tup_elt   word8_elt
+tup_elt3  = mkTupElt word8_elt tup_elt  
 
 -- How do we do this without the full cartesian prudct?
 mkTupElt :: EltType -> EltType -> EltType
@@ -195,8 +203,14 @@ mkTupElt e1 e2 =
   case (e1,e2) of
     (EltWord8 d1, EltWord8 d2) -> EltTup d1 d2
     (EltTup d1 d2, EltWord8 d3) ->
---      EltTup (EltTupDict d1 d2) d3
-      undefined -- Ack! ...
+      -- Hmm, is this going to work?
+      EltTup (EltTupDict d1 d2) d3
+
+    -- We should use an EltRepr style type family to canonicalize tuples...
+    (EltWord8 d3, EltTup d1 d2) ->
+      EltTup d3 (EltTupDict d1 d2) 
+
+run2 = I.run unpack4
 
 dest2 :: Acc (Scalar (Word8,Word16))
 dest2 = (A.unit tup)
@@ -204,21 +218,25 @@ dest2 = (A.unit tup)
   tup :: Exp (Word8,Word16)
   tup = lift (constant 8,constant 15)
 
-
-
--- foreign export ccall int_elt :: IO Int
--- int_elt = return$ fromEnum (EltInt EltDict)
-
-
 --------------------------------------------------------------------------------
 -- (3) Trying one other thing to reuse Type.hs types:
+  --------------------------------------------------------------------------------
 
 -- Erase the type parameter from an existing Accelerate type.
 data SealedIntegralType where
   SealedIntegralType :: T.IntegralType a -> SealedIntegralType
+  
+data SealedTupleType where
+  SealedTupleType :: T.TupleType a -> SealedTupleType
 
 
 --------------------------------------------------------------------------------
 
 main = putStrLn "hi"
 
+
+--------------------------------------------------------------------------------
+-- Misc
+
+singletonScalarType :: T.IsScalar a => a -> T.TupleType ((), a)
+singletonScalarType _ = T.PairTuple T.UnitTuple (T.SingleTuple T.scalarType)
