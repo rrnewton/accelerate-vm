@@ -96,11 +96,11 @@ arr0
   -- ...                                                     
 
 
-unpack1 :: Maybe (Exp Word8) -- Test.
-unpack1 = fromDynamic ex1
+unpack1 :: Exp Word8 -- Test.
+unpack1 = downcastE ex1
 
 unpack2 :: (Acc (Scalar Word8))
-unpack2 = fromJust $ fromDynamic arr1
+unpack2 = downcastA arr1
 
 run1 = I.run unpack2
 
@@ -158,11 +158,26 @@ instance Show (EltDict a) where
 --   toEnum 0 = EltInt  EltDict  
 --   toEnum 1 = EltInt8 EltDict
 
+-- TODO: make these pairs that keep around some printed rep for debugging purposes:
 type SealedExp = Dynamic
 type SealedAcc = Dynamic
 
-unitS :: EltType -> SealedExp -> SealedAcc
-unitS elt exp =
+downcastE :: forall a . Typeable a => SealedExp -> Exp a
+downcastE d = case fromDynamic d of
+                Just e -> e
+                Nothing ->
+                  error$"Attempt to unpack dynamic typed Expr with type "++show d
+                     ++ " expect type "++ show (toDyn (unused::a))
+
+downcastA :: forall a . Typeable a => SealedAcc -> Acc a
+downcastA d = case fromDynamic d of
+                Just e -> e
+                Nothing ->
+                  error$"Attempt to unpack dynamic typed Acc with type "++show d
+                     ++ " expect type "++ show (toDyn (unused::a))       
+
+unit2 :: EltType -> SealedExp -> SealedAcc
+unit2 elt exp =
   case elt of
     EltInt (_ :: EltDict Int) ->
       toDyn$ unit$ fromDyn exp (unused::Exp Int)
@@ -183,13 +198,13 @@ mkTup (e1,dyn1) (e2,dyn2) =
       toDyn (lift (x,y) :: Exp (a,b))
       
 arr2 :: SealedAcc
-arr2 = unitS tup_elt ex2
+arr2 = unit2 tup_elt ex2
 
-unpack3 :: Maybe (Exp (Word8,Word8))
-unpack3 = fromDynamic ex2
+unpack3 :: Exp (Word8,Word8)
+unpack3 = downcastE ex2
 
 unpack4 :: (Acc (Scalar (Word8,Word8)))
-unpack4 = fromJust $ fromDynamic arr2
+unpack4 = downcastA arr2
 
 int_elt   = EltInt   EltDict
 word8_elt = EltWord8 EltDict
@@ -229,14 +244,60 @@ data SealedIntegralType where
 data SealedTupleType where
   SealedTupleType :: T.TupleType a -> SealedTupleType
 
+unit3 :: SealedTupleType -> SealedExp -> SealedAcc
+unit3 elt exp =
+  case elt of
+    SealedTupleType (t :: T.TupleType a) ->
+      case t of
+        T.UnitTuple -> toDyn$ unit$ constant ()
+        T.SingleTuple (st :: T.ScalarType s) ->
+          undefined -- No ELT instance here.
+--          toDyn$ unit (downcastE exp :: Exp s)
 
 --------------------------------------------------------------------------------
+-- (4) Ok, I think we've learned something above, let's try again
+--------------------------------------------------------------------------------        
 
-main = putStrLn "hi"
+-- We enhance TupleType with Elt constraints:
+data EltTuple a where
+  UnitTuple   ::                                               EltTuple ()
+  SingleTuple :: Elt a          => T.ScalarType a           -> EltTuple a
+  PairTuple   :: (Elt a, Elt b) => EltTuple a -> EltTuple b -> EltTuple (a, b)
 
+data SealedEltTuple where
+  SealedEltTuple :: EltTuple a -> SealedEltTuple
+
+-- We could avoid Dynamic:
+data SealedExp2 where SealedExp2 :: Exp a -> SealedExp2
+
+unit4 :: SealedEltTuple -> SealedExp -> SealedAcc
+unit4 elt exp =
+  case elt of
+    SealedEltTuple (t :: EltTuple et) ->
+      case t of
+        UnitTuple -> toDyn$ unit$ constant ()
+        SingleTuple (st :: T.ScalarType s) ->
+          toDyn$ unit (downcastE exp :: Exp s)
+        PairTuple (_ :: EltTuple l) (_ :: EltTuple r) ->
+          toDyn$ unit (downcastE exp :: Exp (l,r))
+
+arr4 :: SealedAcc
+arr4 = unit4 tup_elt ex2
+ where
+   sword8_elt, tup_elt :: SealedEltTuple
+   sword8_elt = SealedEltTuple word8_elt
+   word8_elt = SingleTuple (T.scalarType :: T.ScalarType Word8)
+   tup_elt   = SealedEltTuple$ PairTuple word8_elt word8_elt
+
+run4 = I.run (downcastA arr4 :: (Acc (Scalar (Word8,Word8))))
 
 --------------------------------------------------------------------------------
 -- Misc
 
 singletonScalarType :: T.IsScalar a => a -> T.TupleType ((), a)
 singletonScalarType _ = T.PairTuple T.UnitTuple (T.SingleTuple T.scalarType)
+
+main = do 
+  print run1
+  print run2
+  print run4
