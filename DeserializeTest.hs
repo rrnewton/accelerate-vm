@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE GADTs #-}
@@ -119,14 +120,26 @@ singletonScalarType _ = T.PairTuple T.UnitTuple (T.SingleTuple T.scalarType)
 
 data EltDict a where
   EltDict :: (Elt a) => EltDict a
+  -- Experimenting:
+  EltTupDict :: (Elt a,Elt b) => EltDict a -> EltDict b -> EltDict (a,b)
 
 data EltType where
   EltInt     :: EltDict Int   -> EltType
   EltInt8    :: EltDict Int8  -> EltType
 
+  EltTup     :: (Elt a, Elt b) =>
+                 -- Typeable a, Typeable b,
+                 -- Dat.ArrayElt (Sug.EltRepr a),
+                 -- Dat.ArrayElt (Sug.EltRepr' b)) =>
+                EltDict a -> EltDict b -> EltType
+
+  EltTup2     :: EltDict (a,b) -> EltType  
+                
+
 instance Show EltType where
   show (EltInt _)  = "Int"
   show (EltInt8 _) = "Int8"
+  show (EltTup _ _) = "Tup"
 
 instance Enum EltType where
   fromEnum (EltInt _)  = 0
@@ -136,17 +149,38 @@ instance Enum EltType where
 
 data AccBuilder
 
-unitS :: EltType -> S.Exp -> AccBuilder
+-- unitS :: EltType -> S.Exp -> AccBuilder
+unitS :: EltType -> Dynamic -> Dynamic
 unitS elt exp =
   case elt of
     EltInt (_ :: EltDict Int) ->
-      undefined
+      toDyn$ unit$ fromDyn exp (unused::Exp Int)
 
--- unitDyn :: Type -> Dynamic -> Dynamic
--- unitDyn ty ex =
---   case ty of
---     TArray _ TWord8 -> toDyn (unit (fromDyn ex (unused::Exp Word8)))
---     TArray _ TInt   -> toDyn (unit (fromDyn ex (unused::Exp Int)))
+    EltTup (_ :: EltDict a) (_ :: EltDict b) ->
+      toDyn$ unit$ fromDyn exp (unused :: Exp (a,b))
+
+
+ex2 :: EltType -> Dynamic
+ex2 = undefined
+-- ex2 = case eltty of
+--        TInt   -> toDyn ((A.constant (read str :: Int)) :: Exp Int)
+--        TWord8 -> toDyn ((A.constant (read str :: Word8)) :: Exp Word8)
+
+arr2 :: Dynamic
+--arr2 = unitS int_elt (ex2 int_elt)
+arr2 = unitS tup_elt (ex2 tup_elt)
+
+int_elt = EltInt EltDict
+
+tup_elt = let EltInt d = int_elt in
+          EltTup d d
+
+dest2 :: Acc (Scalar (Word8,Word16))
+dest2 = (A.unit tup)
+ where
+  tup :: Exp (Word8,Word16)
+  tup = lift (constant 8,constant 15)
+
 
 
 #if 0
