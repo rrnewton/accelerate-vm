@@ -5,7 +5,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE CPP #-}
 -- {-# LANGUAGE StandaloneDeriving #-}
 
 import Prelude as P
@@ -116,7 +115,7 @@ singletonScalarType _ = T.PairTuple T.UnitTuple (T.SingleTuple T.scalarType)
 
 --------------------------------------------------------------------------------
 
--- Reified dictionary approach:
+-- (2) Reified dictionary approach:
 
 data EltDict a where
   EltDict :: (Elt a) => EltDict a
@@ -126,6 +125,7 @@ data EltDict a where
 data EltType where
   EltInt     :: EltDict Int   -> EltType
   EltInt8    :: EltDict Int8  -> EltType
+  EltWord8   :: EltDict Word8 -> EltType  
 
   EltTup     :: (Elt a, Elt b) =>
                  -- Typeable a, Typeable b,
@@ -133,24 +133,31 @@ data EltType where
                  -- Dat.ArrayElt (Sug.EltRepr' b)) =>
                 EltDict a -> EltDict b -> EltType
 
-  EltTup2     :: EltDict (a,b) -> EltType  
+  EltTup2     :: EltDict (a,b) -> EltType
+
+  -- This version witnesses a relation.  Probably doesn't help.
+  EltTup3     :: (Elt a, Elt b) =>
+                 EltDict a -> EltDict b -> EltDict (a,b) -> EltType
                 
 
 instance Show EltType where
   show (EltInt _)  = "Int"
   show (EltInt8 _) = "Int8"
+  show (EltWord8 _) = "Word8"
   show (EltTup _ _) = "Tup"
 
-instance Enum EltType where
-  fromEnum (EltInt _)  = 0
-  fromEnum (EltInt8 _) = 1
-  toEnum 0 = EltInt  EltDict  
-  toEnum 1 = EltInt8 EltDict
+-- Enums: Won't work for tuples.  Need StablePtrs, alas.
+-- instance Enum EltType where
+--   fromEnum (EltInt _)  = 0
+--   fromEnum (EltInt8 _) = 1
+--   toEnum 0 = EltInt  EltDict  
+--   toEnum 1 = EltInt8 EltDict
 
-data AccBuilder
+type SealedExp = Dynamic
+type SealedAcc = Dynamic
 
 -- unitS :: EltType -> S.Exp -> AccBuilder
-unitS :: EltType -> Dynamic -> Dynamic
+unitS :: EltType -> SealedExp -> SealedAcc
 unitS elt exp =
   case elt of
     EltInt (_ :: EltDict Int) ->
@@ -159,21 +166,46 @@ unitS elt exp =
     EltTup (_ :: EltDict a) (_ :: EltDict b) ->
       toDyn$ unit$ fromDyn exp (unused :: Exp (a,b))
 
+-- A tuple constant:
+ex2 :: SealedExp
+ex2 = let x = (fromDyn ex1 (unused :: Exp Word8)) in
+      toDyn (lift (x,x) :: Exp (Word8,Word8))
 
-ex2 :: EltType -> Dynamic
-ex2 = undefined
--- ex2 = case eltty of
---        TInt   -> toDyn ((A.constant (read str :: Int)) :: Exp Int)
---        TWord8 -> toDyn ((A.constant (read str :: Word8)) :: Exp Word8)
-
-arr2 :: Dynamic
+ex2' :: SealedExp
+ex2' = mkTup (word8_elt,ex1) (word8_elt,ex1)
+mkTup :: (EltType,SealedExp) -> (EltType,SealedExp) -> SealedExp
+mkTup (e1,dyn1) (e2,dyn2) =
+  case mkTupElt e1 e2 of
+    EltTup (_ :: EltDict a) (_ :: EltDict b) ->
+      let x  = fromDyn dyn1 (unused::Exp a)
+          y  = fromDyn dyn2 (unused::Exp b) in
+      toDyn (lift (x,y) :: Exp (a,b))
+      
+arr2 :: SealedAcc
 --arr2 = unitS int_elt (ex2 int_elt)
-arr2 = unitS tup_elt (ex2 tup_elt)
+arr2 = unitS tup_elt (ex2)
+
+unpack3 :: Maybe (Exp (Word8,Word8))
+unpack3 = fromDynamic ex2
+
+unpack3' :: Maybe (Exp (Word8,Word8))
+unpack3' = fromDynamic ex2'
+
+unpack4 :: (Acc (Scalar (Word8,Word8)))
+unpack4 = fromJust $ fromDynamic arr2
 
 int_elt = EltInt EltDict
+word8_elt = EltWord8 EltDict
 
-tup_elt = let EltInt d = int_elt in
-          EltTup d d
+tup_elt = mkTupElt word8_elt word8_elt
+
+-- How do we do this without the full cartesian prudct?
+mkTupElt :: EltType -> EltType -> EltType
+mkTupElt e1 e2 =
+  case (e1,e2) of
+    (EltWord8 d1, EltWord8 d2) -> EltTup d1 d2
+    (EltTup d1 d2, EltWord8 d3) ->
+      undefined -- Ack! ...
 
 dest2 :: Acc (Scalar (Word8,Word16))
 dest2 = (A.unit tup)
@@ -183,56 +215,19 @@ dest2 = (A.unit tup)
 
 
 
-#if 0
-foreign export ccall int_elt :: IO Int
-int_elt = return$ fromEnum (EltInt EltDict)
-#endif
+-- foreign export ccall int_elt :: IO Int
+-- int_elt = return$ fromEnum (EltInt EltDict)
+
+
+--------------------------------------------------------------------------------
+-- (3) Trying one other thing to reuse Type.hs types:
+
+-- Erase the type parameter from an existing Accelerate type.
+data SealedIntegralType where
+  SealedIntegralType :: T.IntegralType a -> SealedIntegralType
+
+
+--------------------------------------------------------------------------------
 
 main = putStrLn "hi"
 
--- int_elt :: EltType
--- int_elt  = toEnum 0
-
--- int8_elt :: EltType
--- int8_elt = toEnum 1
-
-
-{-
-data EltType a where
-  EltInt     :: EltDict Int   -> EltType Int
-  EltInt8    :: EltDict Int8  -> EltType Int8
-
-instance Show (EltType a) where
-  show (EltInt _)  = "Int"
-  show (EltInt8 _) = "Int8"
-
--- instance Enum (EltType Int) where
---   fromEnum (EltInt _)  = 0
---   toEnum 0 = EltInt  EltDict
-
--- instance Enum (EltType Int8) where 
---   fromEnum (EltInt8 _) = 1    
---   toEnum 1 = EltInt8 EltDict
--}
-
--- deriving instance Enum EltType
-
--- data IntegralType a where
---   TypeInt     :: IntegralDict Int     -> IntegralType Int
---   TypeInt8    :: IntegralDict Int8    -> IntegralType Int8
---   TypeInt16   :: IntegralDict Int16   -> IntegralType Int16
---   TypeInt32   :: IntegralDict Int32   -> IntegralType Int32
---   TypeInt64   :: IntegralDict Int64   -> IntegralType Int64
---   TypeWord    :: IntegralDict Word    -> IntegralType Word
---   TypeWord8   :: IntegralDict Word8   -> IntegralType Word8
---   TypeWord16  :: IntegralDict Word16  -> IntegralType Word16
---   TypeWord32  :: IntegralDict Word32  -> IntegralType Word32
---   TypeWord64  :: IntegralDict Word64  -> IntegralType Word64
---   TypeCShort  :: IntegralDict CShort  -> IntegralType CShort
---   TypeCUShort :: IntegralDict CUShort -> IntegralType CUShort
---   TypeCInt    :: IntegralDict CInt    -> IntegralType CInt
---   TypeCUInt   :: IntegralDict CUInt   -> IntegralType CUInt
---   TypeCLong   :: IntegralDict CLong   -> IntegralType CLong
---   TypeCULong  :: IntegralDict CULong  -> IntegralType CULong
---   TypeCLLong  :: IntegralDict CLLong  -> IntegralType CLLong
---   TypeCULLong :: IntegralDict CULLong -> IntegralType CULLong
