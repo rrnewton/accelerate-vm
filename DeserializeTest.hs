@@ -123,27 +123,24 @@ data EltDict a where
   EltTupDict :: (Elt a,Elt b) => EltDict a -> EltDict b -> EltDict (a,b)
 
 data EltType where
-  EltInt     :: EltDict Int   -> EltType
-  EltInt8    :: EltDict Int8  -> EltType
-  EltWord8   :: EltDict Word8 -> EltType  
+  EltInt     :: EltType
+  EltInt8    :: EltType
+  EltWord8   :: EltType  
 
   EltTup     :: (Elt a, Elt b) =>
-                 -- Typeable a, Typeable b,
-                 -- Dat.ArrayElt (Sug.EltRepr a),
-                 -- Dat.ArrayElt (Sug.EltRepr' b)) =>
                 EltDict a -> EltDict b -> EltType
 
+  -- Other options:
   EltTup2     :: EltDict (a,b) -> EltType
-
   -- This version witnesses a relation.  Probably doesn't help.
   EltTup3     :: (Elt a, Elt b) =>
                  EltDict a -> EltDict b -> EltDict (a,b) -> EltType
                 
 
 instance Show EltType where
-  show (EltInt _)  = "Int"
-  show (EltInt8 _) = "Int8"
-  show (EltWord8 _) = "Word8"
+  show (EltInt )  = "Int"
+  show (EltInt8 ) = "Int8"
+  show (EltWord8 ) = "Word8"
   show (EltTup _ _) = "Tup"
 
 -- Enums: Won't work for tuples.  Need StablePtrs, alas.
@@ -160,7 +157,7 @@ type SealedAcc = Dynamic
 unitS :: EltType -> SealedExp -> SealedAcc
 unitS elt exp =
   case elt of
-    EltInt (_ :: EltDict Int) ->
+    EltInt ->
       toDyn$ unit$ fromDyn exp (unused::Exp Int)
 
     EltTup (_ :: EltDict a) (_ :: EltDict b) ->
@@ -194,8 +191,8 @@ unpack3' = fromDynamic ex2'
 unpack4 :: (Acc (Scalar (Word8,Word8)))
 unpack4 = fromJust $ fromDynamic arr2
 
-int_elt = EltInt EltDict
-word8_elt = EltWord8 EltDict
+int_elt   = EltInt 
+word8_elt = EltWord8 
 
 tup_elt = mkTupElt word8_elt word8_elt
 
@@ -203,8 +200,8 @@ tup_elt = mkTupElt word8_elt word8_elt
 mkTupElt :: EltType -> EltType -> EltType
 mkTupElt e1 e2 =
   case (e1,e2) of
-    (EltWord8 d1, EltWord8 d2) -> EltTup d1 d2
-    (EltTup d1 d2, EltWord8 d3) ->
+    (EltWord8 , EltWord8 ) -> EltTup (EltDict :: EltDict Word8) (EltDict :: EltDict Word8)
+    (EltTup d1 d2, EltWord8 ) ->
       undefined -- Ack! ...
 
 dest2 :: Acc (Scalar (Word8,Word16))
