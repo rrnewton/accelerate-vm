@@ -156,7 +156,6 @@ instance Show EltType where
 type SealedExp = Dynamic
 type SealedAcc = Dynamic
 
--- unitS :: EltType -> S.Exp -> AccBuilder
 unitS :: EltType -> SealedExp -> SealedAcc
 unitS elt exp =
   case elt of
@@ -168,11 +167,7 @@ unitS elt exp =
 
 -- A tuple constant:
 ex2 :: SealedExp
-ex2 = let x = (fromDyn ex1 (unused :: Exp Word8)) in
-      toDyn (lift (x,x) :: Exp (Word8,Word8))
-
-ex2' :: SealedExp
-ex2' = mkTup (word8_elt,ex1) (word8_elt,ex1)
+ex2 = mkTup (word8_elt,ex1) (word8_elt,ex1)
 mkTup :: (EltType,SealedExp) -> (EltType,SealedExp) -> SealedExp
 mkTup (e1,dyn1) (e2,dyn2) =
   case mkTupElt e1 e2 of
@@ -182,22 +177,17 @@ mkTup (e1,dyn1) (e2,dyn2) =
       toDyn (lift (x,y) :: Exp (a,b))
       
 arr2 :: SealedAcc
---arr2 = unitS int_elt (ex2 int_elt)
-arr2 = unitS tup_elt (ex2)
+arr2 = unitS tup_elt ex2
 
 unpack3 :: Maybe (Exp (Word8,Word8))
 unpack3 = fromDynamic ex2
 
-unpack3' :: Maybe (Exp (Word8,Word8))
-unpack3' = fromDynamic ex2'
-
 unpack4 :: (Acc (Scalar (Word8,Word8)))
 unpack4 = fromJust $ fromDynamic arr2
 
-int_elt = EltInt EltDict
+int_elt   = EltInt   EltDict
 word8_elt = EltWord8 EltDict
-
-tup_elt = mkTupElt word8_elt word8_elt
+tup_elt   = mkTupElt word8_elt word8_elt
 
 -- How do we do this without the full cartesian prudct?
 mkTupElt :: EltType -> EltType -> EltType
@@ -205,6 +195,7 @@ mkTupElt e1 e2 =
   case (e1,e2) of
     (EltWord8 d1, EltWord8 d2) -> EltTup d1 d2
     (EltTup d1 d2, EltWord8 d3) ->
+--      EltTup (EltTupDict d1 d2) d3
       undefined -- Ack! ...
 
 dest2 :: Acc (Scalar (Word8,Word16))
