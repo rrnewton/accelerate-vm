@@ -267,9 +267,6 @@ data EltTuple a where
 data SealedEltTuple where
   SealedEltTuple :: EltTuple a -> SealedEltTuple
 
--- We could avoid Dynamic:
-data SealedExp2 where SealedExp2 :: Exp a -> SealedExp2
-
 unit4 :: SealedEltTuple -> SealedExp -> SealedAcc
 unit4 elt exp =
   case elt of
@@ -290,6 +287,15 @@ arr4 = unit4 tup_elt ex2
    tup_elt   = SealedEltTuple$ PairTuple word8_elt word8_elt
 
 run4 = I.run (downcastA arr4 :: (Acc (Scalar (Word8,Word8))))
+
+-- We could try to avoid Dynamic:
+data SealedExp4 where SealedExp4 :: Exp a -> SealedExp4
+data SealedAcc4 where SealedAcc4 :: Acc a -> SealedAcc4
+
+-- This doesn't seem to help, there needs to be a way for DYNAMIC failure to happen
+-- if a1/a2 are not the same.  Data.Dynamic does indeed seem useful.
+downcastE4 :: forall a1 . SealedExp4 -> Exp a1
+downcastE4 (SealedExp4 (e :: Exp a2)) = undefined
 
 --------------------------------------------------------------------------------
 -- Misc
